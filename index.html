@@ -211,12 +211,29 @@ canvas.onmousemove=e=>{
 canvas.onmouseup=end;
 canvas.onmouseleave=end;
 
+// ---------- mobile touch support ----------
+canvas.addEventListener("touchstart", e=>{
+  e.preventDefault();
+  const t=e.touches[0];
+  canvas.onmousedown({clientX:t.clientX, clientY:t.clientY, button:0});
+},{passive:false});
+canvas.addEventListener("touchmove", e=>{
+  e.preventDefault();
+  const t=e.touches[0];
+  canvas.onmousemove({clientX:t.clientX, clientY:t.clientY, buttons:1, movementX:t.clientX-(canvas._lastX||t.clientX), movementY:t.clientY-(canvas._lastY||t.clientY)});
+  canvas._lastX=t.clientX; canvas._lastY=t.clientY;
+},{passive:false});
+canvas.addEventListener("touchend", e=>{
+  e.preventDefault();
+  canvas.onmouseup();
+  canvas._lastX=null; canvas._lastY=null;
+},{passive:false});
+
 async function end(){
   if(tool==="circle" && previewCircle) await addDoc(collection(db,"strokes"),{type:"circle", ...previewCircle, created:serverTimestamp()});
   else if(drawing && tool!=="pan" && path.length>1) await addDoc(collection(db,"strokes"),{points:path, color, erase:tool==="erase", created:serverTimestamp()});
   drawing=false; path=[]; previewCircle=null; circleStart=null;
 }
-
 function sendCursor(e){const p=pos(e); setDoc(doc(db,"cursors",myId),{id:myId, name:username, x:p.x, y:p.y, t:Date.now()});}
 
 </script>
