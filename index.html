@@ -45,47 +45,28 @@ function grid(){const s=50*view.scale; ctx.strokeStyle="#eee"; ctx.lineWidth=1; 
 function drawStroke(s){if(!s.points||s.points.length<2) return; ctx.globalCompositeOperation="source-over"; ctx.strokeStyle=s.erase?"#fff":(s.color||"#000"); ctx.lineWidth=s.erase?24:3; ctx.beginPath(); ctx.moveTo(s.points[0].x*view.scale+view.x,s.points[0].y*view.scale+view.y); for(let p of s.points){ctx.lineTo(p.x*view.scale+view.x,p.y*view.scale+view.y);} ctx.stroke();}
 function drawCircle(c){if(!c) return; ctx.strokeStyle=c.color; ctx.lineWidth=3; ctx.beginPath(); ctx.arc(c.x*view.scale+view.x,c.y*view.scale+view.y,c.r*view.scale,0,Math.PI*2); ctx.stroke();}
 function redraw(){ctx.clearRect(0,0,canvas.width,canvas.height); grid(); strokes.forEach(s=>{if(s.type==="circle") drawCircle(s); else if(s.type==="text"){ctx.fillStyle=s.color; ctx.font=`${16*view.scale}px sans-serif`; ctx.fillText(s.text, s.x*view.scale+view.x, s.y*view.scale+view.y);} else drawStroke(s);}); if(path.length>1) drawStroke({points:path,color,erase:tool==="erase"}); drawCircle(previewCircle);}
+// ---------- multiplayer ----------
 onSnapshot(collection(db,"strokes"),snap=>{strokes=[]; snap.forEach(d=>strokes.push(d.data())); redraw();});
 onSnapshot(collection(db,"cursors"),snap=>{document.querySelectorAll(".cursor").forEach(e=>e.remove()); snap.forEach(d=>{const c=d.data(); if(c.id===myId) return; const el=document.createElement("div"); el.className="cursor"; el.style.left=(c.x*view.scale+view.x)+"px"; el.style.top=(c.y*view.scale+view.y+48)+"px"; el.innerHTML=`<div class="cursorName">${c.name}</div><div class="cursorDot"></div>`; document.body.appendChild(el);});});
 function pos(e){const r=canvas.getBoundingClientRect(); return {x:(e.clientX-r.left-view.x)/view.scale, y:(e.clientY-r.top-view.y)/view.scale};}
 canvas.onmousedown=e=>{if(e.button!==0) return; drawing=true; if(tool==="draw"||tool==="erase") path=[pos(e)]; if(tool==="circle") circleStart=pos(e); if(tool==="text"){const p=pos(e); const txt=prompt("Enter text:"); if(txt) addDoc(collection(db,"strokes"),{type:"text", text:txt, x:p.x, y:p.y, color, created:serverTimestamp()}); drawing=false;}}
 canvas.onmousemove=e=>{sendCursor(e); if(!drawing) return; if(tool==="pan"){view.x+=e.movementX; view.y+=e.movementY; redraw(); return;} if(tool==="circle" && circleStart){const p=pos(e); const dx=p.x-circleStart.x; const dy=p.y-circleStart.y; previewCircle={x:circleStart.x,y:circleStart.y,r:Math.sqrt(dx*dx+dy*dy),color}; redraw(); return;} if(e.buttons!==1) return; if(tool==="draw"||tool==="erase") path.push(pos(e)), redraw();}
 canvas.onmouseup=end; canvas.onmouseleave=end;
+// ---------- mobile support ----------
 canvas.addEventListener("touchstart", e=>{e.preventDefault(); const t=e.touches[0]; canvas.onmousedown({clientX:t.clientX,clientY:t.clientY,button:0});},{passive:false});
 canvas.addEventListener("touchmove", e=>{e.preventDefault(); const t=e.touches[0]; canvas.onmousemove({clientX:t.clientX,clientY:t.clientY,buttons:1, movementX:t.clientX-(canvas._lastX||t.clientX), movementY:t.clientY-(canvas._lastY||t.clientY)}); canvas._lastX=t.clientX; canvas._lastY=t.clientY;},{passive:false});
 canvas.addEventListener("touchend", e=>{e.preventDefault(); canvas.onmouseup(); canvas._lastX=null; canvas._lastY=null;},{passive:false});
-canvas.addEventListener("wheel", e=>{
-  e.preventDefault();
-  const scaleAmount = e.deltaY<0?1.1:0.9;
-  const mousePos = pos(e);
-  view.scale *= scaleAmount;
-  view.x = e.clientX - mousePos.x*view.scale;
-  view.y = e.clientY - mousePos.y*view.scale;
-  redraw();
-},{passive:false});
+// ---------- zoom ----------
+canvas.addEventListener("wheel", e=>{e.preventDefault(); const scaleAmount = e.deltaY<0?1.1:0.9; const mousePos = pos(e); view.scale*=scaleAmount; view.x = e.clientX - mousePos.x*view.scale; view.y = e.clientY - mousePos.y*view.scale; redraw();},{passive:false});
 let lastDist=0;
 canvas.addEventListener("touchmove", e=>{
   if(e.touches.length===2){
     e.preventDefault();
-    const dx = e.touches[1].clientX - e.touches[0].clientX;
-    const dy = e.touches[1].clientY - e.touches[0].clientY;
-    const dist = Math.sqrt(dx*dx+dy*dy);
-    if(lastDist){
-      const scaleAmount = dist/lastDist;
-      const midX=(e.touches[0].clientX+e.touches[1].clientX)/2;
-      const midY=(e.touches[0].clientY+e.touches[1].clientY)/2;
-      const posMid={x:(midX-view.x)/view.scale, y:(midY-view.y)/view.scale};
-      view.scale *= scaleAmount;
-      view.x = midX - posMid.x*view.scale;
-      view.y = midY - posMid.y*view.scale;
-      redraw();
-    }
+    const dx=e.touches[1].clientX-e.touches[0].clientX;
+    const dy=e.touches[1].clientY-e.touches[0].clientY;
+    const dist=Math.sqrt(dx*dx+dy*dy);
+    if(lastDist){const scaleAmount=dist/lastDist; const midX=(e.touches[0].clientX+e.touches[1].clientX)/2; const midY=(e.touches[0].clientY+e.touches[1].clientY)/2; const posMid={x:(midX-view.x)/view.scale, y:(midY-view.y)/view.scale}; view.scale*=scaleAmount; view.x=midX-posMid.x*view.scale; view.y=midY-posMid.y*view.scale; redraw();}
     lastDist=dist;
   }
 },{passive:false});
-canvas.addEventListener("touchend", e=>{if(e.touches.length<2) lastDist=0;},{passive:false});
-async function end(){if(tool==="circle"&&previewCircle) await addDoc(collection(db,"strokes"),{type:"circle",...previewCircle,created:serverTimestamp()}); else if(drawing&&tool!=="pan"&&path.length>1) await addDoc(collection(db,"strokes"),{points:path,color,erase:tool==="erase",created:serverTimestamp()}); drawing=false; path=[]; previewCircle=null; circleStart=null;}
-function sendCursor(e){const p=pos(e); setDoc(doc(db,"cursors",myId),{id:myId,name:username,x:p.x,y:p.y,t:Date.now()});}
-</script>
-</body>
-</html>
+canvas.addEven
