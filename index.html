@@ -5,227 +5,73 @@
 <title>Whiteboard Venus</title>
 <style>
 body { margin:0; overflow:hidden; font-family:sans-serif; }
-#bar{position:fixed;top:0;left:0;right:0;background:white;padding:8px;z-index:10;box-shadow:0 2px 6px rgba(0,0,0,.15);}
-button.active{background:#222;color:#fff;}
-canvas{position:absolute;top:48px;left:0;background:white;}
-.cursor{position:absolute;transform:translate(-50%,-50%);pointer-events:none;text-align:center;font-size:12px}
-.cursorDot{width:8px;height:8px;background:#000;border-radius:50%;margin:auto}
-.cursorName{background:#000;color:#fff;padding:2px 6px;border-radius:8px;font-size:11px;margin-bottom:2px}
+#bar{position:fixed; top:0; left:0; right:0; background:white; padding:8px; box-shadow:0 2px 6px rgba(0,0,0,.15); z-index:10;}
+button.active{ background:#222; color:#fff; }
+canvas{ position:absolute; top:48px; left:0; }
+.cursor{ position:absolute; transform:translate(-50%,-50%); pointer-events:none; text-align:center; font-size:12px; }
+.cursorDot{ width:8px;height:8px;background:#000;border-radius:50%; margin:auto; }
+.cursorName{ background:#000;color:#fff; padding:2px 6px;border-radius:8px; font-size:11px;margin-bottom:2px; }
 </style>
 </head>
 <body>
-
 <div id="bar">
-<b>Whiteboard Venus</b>
-<button id="draw">Draw</button>
-<button id="pan">Pan</button>
-<button id="erase">Eraser</button>
-<button id="circle">Circle</button>
-<button id="text">Text</button>
-<input type="color" id="color" value="#000000">
-<input id="name" placeholder="username" size="10">
+  <b>Whiteboard Venus</b>
+  <button id="drawBtn">Draw</button>
+  <button id="panBtn">Pan</button>
+  <button id="eraseBtn">Eraser</button>
+  <button id="circleBtn">Circle</button>
+  <button id="textBtn">Text</button>
+  Color <input type="color" id="color" value="#000000">
+  Name <input id="nameBox" placeholder="username" size="10">
 </div>
-
-<canvas id="c"></canvas>
-
+<canvas id="board"></canvas>
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
 import { getFirestore, collection, addDoc, onSnapshot, serverTimestamp, doc, setDoc } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
-
-const firebaseConfig={
- apiKey:"AIzaSyAZHwEhv0MEmYamoKrTOJ7EivHU_DYmwPo",
- authDomain:"whiteboard-venus.firebaseapp.com",
- projectId:"whiteboard-venus"
-};
-
-const app=initializeApp(firebaseConfig);
-const db=getFirestore(app);
-
-const canvas=document.getElementById("c");
-const ctx=canvas.getContext("2d");
-
-let view={x:0,y:0,scale:1};
-let tool="draw";
-let drawing=false;
-let path=[];
-let strokes=[];
-let color="#000";
-let username="guest";
-let circleStart=null;
-let previewCircle=null;
-let myId=Math.random().toString(36).slice(2);
-let lastPan={x:0,y:0};
-
-document.getElementById("name").oninput=e=>username=e.target.value||"guest";
-document.getElementById("color").oninput=e=>color=e.target.value;
-
-function setTool(t){
- tool=t;
- ["draw","pan","erase","circle","text"].forEach(id=>{
-  document.getElementById(id).classList.toggle("active",id===t);
- });
-}
-["draw","pan","erase","circle","text"].forEach(id=>{
- document.getElementById(id).onclick=()=>setTool(id);
-});
-setTool("draw");
-
-function resize(){
- canvas.width=innerWidth;
- canvas.height=innerHeight-48;
- redraw();
-}
-resize();
-onresize=resize;
-
-function worldPos(clientX,clientY){
- const r=canvas.getBoundingClientRect();
- return {
-  x:(clientX-r.left-view.x)/view.scale,
-  y:(clientY-r.top-view.y)/view.scale
- };
-}
-
-function drawGrid(){
- const s=50*view.scale;
- ctx.strokeStyle="#eee";
- for(let x=view.x%s;x<canvas.width;x+=s){
-  ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,canvas.height);ctx.stroke();
- }
- for(let y=view.y%s;y<canvas.height;y+=s){
-  ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(canvas.width,y);ctx.stroke();
- }
-}
-
-function drawStroke(s){
- if(!s.points||s.points.length<2) return;
- ctx.strokeStyle=s.erase?"#fff":s.color;
- ctx.lineWidth=s.erase?24:3;
- ctx.beginPath();
- ctx.moveTo(s.points[0].x*view.scale+view.x,s.points[0].y*view.scale+view.y);
- for(let p of s.points){
-  ctx.lineTo(p.x*view.scale+view.x,p.y*view.scale+view.y);
- }
- ctx.stroke();
-}
-
-function redraw(){
- ctx.clearRect(0,0,canvas.width,canvas.height);
- drawGrid();
- strokes.forEach(s=>{
-  if(s.type==="circle"){
-   ctx.strokeStyle=s.color;
-   ctx.beginPath();
-   ctx.arc(s.x*view.scale+view.x,s.y*view.scale+view.y,s.r*view.scale,0,Math.PI*2);
-   ctx.stroke();
-  } else if(s.type==="text"){
-   ctx.fillStyle=s.color;
-   ctx.font=16*view.scale+"px sans-serif";
-   ctx.fillText(s.text,s.x*view.scale+view.x,s.y*view.scale+view.y);
-  } else drawStroke(s);
- });
- if(path.length>1) drawStroke({points:path,color,erase:tool==="erase"});
- if(previewCircle){
-  ctx.strokeStyle=previewCircle.color;
-  ctx.beginPath();
-  ctx.arc(previewCircle.x*view.scale+view.x,previewCircle.y*view.scale+view.y,previewCircle.r*view.scale,0,Math.PI*2);
-  ctx.stroke();
- }
-}
-
-onSnapshot(collection(db,"strokes"),snap=>{
- strokes=[];
- snap.forEach(d=>strokes.push(d.data()));
- redraw();
-});
-
-onSnapshot(collection(db,"cursors"),snap=>{
- document.querySelectorAll(".cursor").forEach(e=>e.remove());
- snap.forEach(d=>{
-  const c=d.data();
-  if(c.id===myId) return;
-  const el=document.createElement("div");
-  el.className="cursor";
-  el.style.left=c.x*view.scale+view.x+"px";
-  el.style.top=c.y*view.scale+view.y+48+"px";
-  el.innerHTML=`<div class="cursorName">${c.name}</div><div class="cursorDot"></div>`;
-  document.body.appendChild(el);
- });
-});
-
-function sendCursor(x,y){
- setDoc(doc(db,"cursors",myId),{
-  id:myId,name:username,x,y,t:Date.now()
- });
-}
-
-canvas.onmousedown=e=>{
- if(e.button!==0) return;
- drawing=true;
- const p=worldPos(e.clientX,e.clientY);
- if(tool==="draw"||tool==="erase") path=[p];
- if(tool==="circle") circleStart=p;
- if(tool==="pan") lastPan={x:e.clientX,y:e.clientY};
- if(tool==="text"){
-  const txt=prompt("Text:");
-  if(txt) addDoc(collection(db,"strokes"),{type:"text",text:txt,x:p.x,y:p.y,color,created:serverTimestamp()});
-  drawing=false;
- }
-};
-
-canvas.onmousemove=e=>{
- const p=worldPos(e.clientX,e.clientY);
- sendCursor(p.x,p.y);
-
- if(!drawing) return;
-
- if(tool==="pan"){
-  view.x+=e.clientX-lastPan.x;
-  view.y+=e.clientY-lastPan.y;
-  lastPan={x:e.clientX,y:e.clientY};
-  redraw();
-  return;
- }
-
- if(tool==="circle" && circleStart){
-  const dx=p.x-circleStart.x;
-  const dy=p.y-circleStart.y;
-  previewCircle={x:circleStart.x,y:circleStart.y,r:Math.hypot(dx,dy),color};
-  redraw();
-  return;
- }
-
- if(tool==="draw"||tool==="erase"){
-  path.push(p);
-  redraw();
- }
-};
-
-canvas.onmouseup=finish;
-canvas.onmouseleave=finish;
-
-async function finish(){
- if(tool==="circle" && previewCircle){
-  await addDoc(collection(db,"strokes"),{type:"circle",...previewCircle,created:serverTimestamp()});
- }
- if(path.length>1 && (tool==="draw"||tool==="erase")){
-  await addDoc(collection(db,"strokes"),{points:path,color,erase:tool==="erase",created:serverTimestamp()});
- }
- drawing=false;
- path=[];
- previewCircle=null;
- circleStart=null;
-}
-
-canvas.addEventListener("wheel",e=>{
- e.preventDefault();
- const p=worldPos(e.clientX,e.clientY);
- const s=e.deltaY<0?1.1:0.9;
- view.scale*=s;
- view.x=e.clientX-p.x*view.scale;
- view.y=e.clientY-p.y*view.scale;
- redraw();
+const firebaseConfig = { apiKey: "AIzaSyAZHwEhv0MEmYamoKrTOJ7EivHU_DYmwPo", authDomain: "whiteboard-venus.firebaseapp.com", projectId: "whiteboard-venus" };
+const app = initializeApp(firebaseConfig);
+const db = getFirestore(app);
+const canvas = document.getElementById("board");
+const ctx = canvas.getContext("2d");
+const drawBtn = document.getElementById("drawBtn"), panBtn = document.getElementById("panBtn"), eraseBtn = document.getElementById("eraseBtn"), circleBtn = document.getElementById("circleBtn"), textBtn = document.getElementById("textBtn"), colorInput = document.getElementById("color"), nameBox = document.getElementById("nameBox");
+let tool="draw", drawing=false, view={x:0,y:0,scale:1}, path=[], strokes=[], color="#000", username="guest";
+let circleStart=null, previewCircle=null, myId=Math.random().toString(36).slice(2);
+nameBox.oninput=e=>username=e.target.value||"guest";
+colorInput.oninput=e=>color=e.target.value;
+function setTool(t){tool=t; drawBtn.classList.toggle("active",t==="draw"); panBtn.classList.toggle("active",t==="pan"); eraseBtn.classList.toggle("active",t==="erase"); circleBtn.classList.toggle("active",t==="circle"); textBtn.classList.toggle("active",t==="text");}
+drawBtn.onclick=()=>setTool("draw"); panBtn.onclick=()=>setTool("pan"); eraseBtn.onclick=()=>setTool("erase"); circleBtn.onclick=()=>setTool("circle"); textBtn.onclick=()=>setTool("text"); setTool("draw");
+function resize(){canvas.width=innerWidth; canvas.height=innerHeight-48; redraw();} resize(); onresize=resize;
+function grid(){const s=50*view.scale; ctx.strokeStyle="#eee"; ctx.lineWidth=1; for(let x=view.x%s;x<canvas.width;x+=s){ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,canvas.height); ctx.stroke();} for(let y=view.y%s;y<canvas.height;y+=s){ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(canvas.width,y); ctx.stroke();}}
+function drawStroke(s){if(!s.points||s.points.length<2) return; ctx.globalCompositeOperation="source-over"; ctx.strokeStyle=s.erase?"#fff":(s.color||"#000"); ctx.lineWidth=s.erase?24:3; ctx.beginPath(); ctx.moveTo(s.points[0].x*view.scale+view.x,s.points[0].y*view.scale+view.y); for(let p of s.points){ctx.lineTo(p.x*view.scale+view.x,p.y*view.scale+view.y);} ctx.stroke();}
+function drawCircle(c){if(!c) return; ctx.strokeStyle=c.color; ctx.lineWidth=3; ctx.beginPath(); ctx.arc(c.x*view.scale+view.x,c.y*view.scale+view.y,c.r*view.scale,0,Math.PI*2); ctx.stroke();}
+function redraw(){ctx.clearRect(0,0,canvas.width,canvas.height); grid(); strokes.forEach(s=>{if(s.type==="circle") drawCircle(s); else if(s.type==="text"){ctx.fillStyle=s.color; ctx.font=`${16*view.scale}px sans-serif`; ctx.fillText(s.text, s.x*view.scale+view.x, s.y*view.scale+view.y);} else drawStroke(s);}); if(path.length>1) drawStroke({points:path,color,erase:tool==="erase"}); drawCircle(previewCircle);}
+// ---------- multiplayer ----------
+onSnapshot(collection(db,"strokes"),snap=>{strokes=[]; snap.forEach(d=>strokes.push(d.data())); redraw();});
+onSnapshot(collection(db,"cursors"),snap=>{document.querySelectorAll(".cursor").forEach(e=>e.remove()); snap.forEach(d=>{const c=d.data(); if(c.id===myId) return; const el=document.createElement("div"); el.className="cursor"; el.style.left=(c.x*view.scale+view.x)+"px"; el.style.top=(c.y*view.scale+view.y+48)+"px"; el.innerHTML=`<div class="cursorName">${c.name}</div><div class="cursorDot"></div>`; document.body.appendChild(el);});});
+function pos(e){const r=canvas.getBoundingClientRect(); return {x:(e.clientX-r.left-view.x)/view.scale, y:(e.clientY-r.top-view.y)/view.scale};}
+canvas.onmousedown=e=>{if(e.button!==0) return; drawing=true; if(tool==="draw"||tool==="erase") path=[pos(e)]; if(tool==="circle") circleStart=pos(e); if(tool==="text"){const p=pos(e); const txt=prompt("Enter text:"); if(txt) addDoc(collection(db,"strokes"),{type:"text", text:txt, x:p.x, y:p.y, color, created:serverTimestamp()}); drawing=false;}}
+canvas.onmousemove=e=>{sendCursor(e); if(!drawing) return; if(tool==="pan"){view.x+=e.movementX; view.y+=e.movementY; redraw(); return;} if(tool==="circle" && circleStart){const p=pos(e); const dx=p.x-circleStart.x; const dy=p.y-circleStart.y; previewCircle={x:circleStart.x,y:circleStart.y,r:Math.sqrt(dx*dx+dy*dy),color}; redraw(); return;} if(e.buttons!==1) return; if(tool==="draw"||tool==="erase") path.push(pos(e)), redraw();}
+canvas.onmouseup=end; canvas.onmouseleave=end;
+// ---------- mobile support ----------
+canvas.addEventListener("touchstart", e=>{e.preventDefault(); const t=e.touches[0]; canvas.onmousedown({clientX:t.clientX,clientY:t.clientY,button:0});},{passive:false});
+canvas.addEventListener("touchmove", e=>{e.preventDefault(); const t=e.touches[0]; canvas.onmousemove({clientX:t.clientX,clientY:t.clientY,buttons:1, movementX:t.clientX-(canvas._lastX||t.clientX), movementY:t.clientY-(canvas._lastY||t.clientY)}); canvas._lastX=t.clientX; canvas._lastY=t.clientY;},{passive:false});
+canvas.addEventListener("touchend", e=>{e.preventDefault(); canvas.onmouseup(); canvas._lastX=null; canvas._lastY=null;},{passive:false});
+// ---------- zoom ----------
+canvas.addEventListener("wheel", e=>{e.preventDefault(); const scaleAmount = e.deltaY<0?1.1:0.9; const mousePos = pos(e); view.scale*=scaleAmount; view.x = e.clientX - mousePos.x*view.scale; view.y = e.clientY - mousePos.y*view.scale; redraw();},{passive:false});
+let lastDist=0;
+canvas.addEventListener("touchmove", e=>{
+  if(e.touches.length===2){
+    e.preventDefault();
+    const dx=e.touches[1].clientX-e.touches[0].clientX;
+    const dy=e.touches[1].clientY-e.touches[0].clientY;
+    const dist=Math.sqrt(dx*dx+dy*dy);
+    if(lastDist){const scaleAmount=dist/lastDist; const midX=(e.touches[0].clientX+e.touches[1].clientX)/2; const midY=(e.touches[0].clientY+e.touches[1].clientY)/2; const posMid={x:(midX-view.x)/view.scale, y:(midY-view.y)/view.scale}; view.scale*=scaleAmount; view.x=midX-posMid.x*view.scale; view.y=midY-posMid.y*view.scale; redraw();}
+    lastDist=dist;
+  }
 },{passive:false});
+canvas.addEventListener("touchend", e=>{if(e.touches.length<2) lastDist=0;},{passive:false});
+async function end(){if(tool==="circle"&&previewCircle) await addDoc(collection(db,"strokes"),{type:"circle",...previewCircle,created:serverTimestamp()}); else if(drawing&&tool!=="pan"&&path.length>1) await addDoc(collection(db,"strokes"),{points:path,color,erase:tool==="erase",created:serverTimestamp()}); drawing=false; path=[]; previewCircle=null; circleStart=null;}
+function sendCursor(e){const p=pos(e); setDoc(doc(db,"cursors",myId),{id:myId,name:username,x:p.x,y:p.y,t:Date.now()});}
 </script>
 </body>
 </html>
